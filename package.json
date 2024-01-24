@@ -1,6 +1,6 @@
 {
   "name": "trpc-bun-adapter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "TRPC adapter for bun js runtime",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -29,6 +29,6 @@
     "typescript": "^5.3.3"
   },
   "peerDependencies": {
-    "@trpc/server": "^10.43.0"
+    "@trpc/server": "^11.0.0-next-beta.228"
   }
 }
