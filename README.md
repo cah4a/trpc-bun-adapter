@@ -80,11 +80,31 @@ Bun.serve(
             // Bun serve options
             port: 3001,
             fetch(request, server) {
-                // will be fired if it's not a TRPC request
+                // will be executed if it's not a TRPC request
                 return new Response("Hello world");
             },
         },
     ),
+);
+```
+
+To add response headers like Cross-origin resource sharing (CORS) use `responseMeta` option:
+```ts
+Bun.serve(
+   createBunServeHandler({
+         router: appRouter,
+         responseMeta(opts) {
+            return {
+               status: 200,
+               headers: {
+                  "Access-Control-Allow-Origin": "*",
+                  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                  "Access-Control-Allow-Headers": "Content-Type, Authorization"
+               }
+            };
+         }
+      }
+   )
 );
 ```
 
