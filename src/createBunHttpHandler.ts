@@ -2,8 +2,9 @@ import { Server } from "bun";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type { AnyRouter, inferRouterContext } from "@trpc/server";
 import type { HTTPBaseHandlerOptions } from "@trpc/server/http";
+import type { FetchCreateContextFnOptions } from '@trpc/server/adapters/fetch'
 
-export type CreateBunContextOptions = { req: Request };
+export type CreateBunContextOptions = FetchCreateContextFnOptions 
 
 export type BunHttpHandlerOptions<TRouter extends AnyRouter> =
     HTTPBaseHandlerOptions<TRouter, Request> & {
