@@ -1,13 +1,15 @@
 import { Server } from "bun";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type { AnyRouter, inferRouterContext } from "@trpc/server";
-import type { HTTPBaseHandlerOptions } from "@trpc/server/http";
-import type { FetchCreateContextFnOptions } from '@trpc/server/adapters/fetch'
+import type {
+    FetchHandlerRequestOptions,
+    FetchCreateContextFnOptions,
+} from "@trpc/server/adapters/fetch";
 
-export type CreateBunContextOptions = FetchCreateContextFnOptions 
+export type CreateBunContextOptions = FetchCreateContextFnOptions;
 
 export type BunHttpHandlerOptions<TRouter extends AnyRouter> =
-    HTTPBaseHandlerOptions<TRouter, Request> & {
+    FetchHandlerRequestOptions<TRouter> & {
         endpoint?: string;
         createContext?: (
             opts: CreateBunContextOptions,
@@ -32,9 +34,9 @@ export function createBunHttpHandler<TRouter extends AnyRouter>(
         }
 
         return fetchRequestHandler({
-            endpoint: opts.endpoint ?? "",
             ...opts,
             req: request,
+            endpoint: opts.endpoint ?? "",
         });
     };
 }

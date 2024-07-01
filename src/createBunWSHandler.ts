@@ -8,24 +8,33 @@ import {
 import {
     AnyRouter,
     callProcedure,
-    getErrorShape, 
+    getErrorShape,
     transformTRPCResponse,
     getTRPCErrorFromUnknown,
     inferRouterContext,
     TRPCError,
 } from "@trpc/server";
 import { isObservable, Unsubscribable } from "@trpc/server/observable";
-import type { BaseHandlerOptions } from "@trpc/server/http";
+import type { BaseHandlerOptions } from "@trpc/server/src/@trpc/server/http";
+import type { CreateContextCallback } from "@trpc/server/src/@trpc/server";
+import type { MaybePromise } from "@trpc/server/src/unstable-core-do-not-import";
+import type { NodeHTTPCreateContextFnOptions } from "@trpc/server/src/adapters/node-http";
+
+export type CreateBunWSSContextFnOptions = Omit<
+    NodeHTTPCreateContextFnOptions<Request, ServerWebSocket<BunWSClientCtx>>,
+    "info"
+>;
 
 export type BunWSAdapterOptions<TRouter extends AnyRouter> = BaseHandlerOptions<
     TRouter,
     Request
-> & {
-    createContext?: (params: {
-        req: Request;
-        client: ServerWebSocket<BunWSClientCtx>;
-    }) => Promise<unknown> | unknown;
-};
+> &
+    CreateContextCallback<
+        inferRouterContext<TRouter>,
+        (
+            opts: CreateBunWSSContextFnOptions,
+        ) => MaybePromise<inferRouterContext<TRouter>>
+    >;
 
 export type BunWSClientCtx = {
     req: Request;
@@ -60,7 +69,10 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                 Unsubscribable
             >();
 
-            const ctxPromise = createContext?.({ req, client });
+            const ctxPromise = createContext?.({
+                req,
+                res: client,
+            });
             let ctx: inferRouterContext<TRouter> | undefined = undefined;
             await (async () => {
                 try {

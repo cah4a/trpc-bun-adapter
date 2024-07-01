@@ -1,23 +1,23 @@
 {
-  "compilerOptions": {
-    "declaration": true,
-    "baseUrl": "src",
-    "target": "esnext",
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
-    "emitDecoratorMetadata": true,
-    "emitDeclarationOnly": true,
-    "outDir": "dist",
-    "experimentalDecorators": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "node",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "types": ["bun-types"]
-  },
-  "include": ["src/index.ts"]
+    "compilerOptions": {
+        "declaration": true,
+        "baseUrl": "src",
+        "target": "esnext",
+        "allowJs": true,
+        "skipLibCheck": true,
+        "strict": true,
+        "forceConsistentCasingInFileNames": true,
+        "emitDecoratorMetadata": true,
+        "emitDeclarationOnly": true,
+        "outDir": "dist",
+        "experimentalDecorators": true,
+        "esModuleInterop": true,
+        "module": "esnext",
+        "moduleResolution": "node",
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "jsx": "preserve",
+        "types": ["bun-types"]
+    },
+    "include": ["src/index.ts"]
 }
