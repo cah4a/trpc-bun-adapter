@@ -3,7 +3,7 @@
     "module": "server.ts",
     "type": "module",
     "scripts": {
-        "start": "bun server/index.ts --watch",
+        "start": "bun --watch server/index.ts",
         "bundle": "bun build --outdir dist client/app.tsx"
     },
     "devDependencies": {

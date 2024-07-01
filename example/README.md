@@ -1,15 +1,24 @@
 # trpc-bun-adapter-example
 
-To install dependencies:
+This is a minimal example of how to use the `trpc-bun-adapter` package.
+
+## Run example
+
+Install dependencies:
 
 ```bash
 bun install
 ```
 
-To run:
+Bundle client code:
 
 ```bash
-bun run index.ts
+bun bundle
 ```
 
-This project was created using `bun init` in bun v1.1.10. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.
+Start the server
+
+```bash
+bun start
+```
+
