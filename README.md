@@ -42,6 +42,10 @@ Check that it works:
 curl http://localhost:3000/ping
 ```
 
+## Example
+
+for a full example, see the [example](./example/) directory.
+
 ## API Reference
 
 Ensure you have created a `router.ts` file as outlined in the tRPC documentation: [Define Routers](https://trpc.io/docs/server/routers).

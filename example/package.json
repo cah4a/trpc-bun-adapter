@@ -1,0 +1,27 @@
+{
+    "name": "trpc-bun-adapter-example",
+    "module": "server.ts",
+    "type": "module",
+    "scripts": {
+        "start": "bun server/index.ts --watch",
+        "bundle": "bun build --outdir dist client/app.tsx"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "@types/react": "^18.3.3",
+        "@types/react-dom": "^18.3.0"
+    },
+    "peerDependencies": {
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "@tanstack/react-query": "^5.49.2",
+        "@trpc/client": "^11.0.0-rc.433",
+        "@trpc/next": "^11.0.0-rc.433",
+        "@trpc/react-query": "^11.0.0-rc.433",
+        "@trpc/server": "^11.0.0-rc.433",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "trpc-bun-adapter": "^1.1.0"
+    }
+}
