@@ -8,13 +8,15 @@ import type {
 
 export type CreateBunContextOptions = FetchCreateContextFnOptions;
 
-export type BunHttpHandlerOptions<TRouter extends AnyRouter> =
-    FetchHandlerRequestOptions<TRouter> & {
-        endpoint?: string;
-        createContext?: (
-            opts: CreateBunContextOptions,
-        ) => inferRouterContext<TRouter> | Promise<inferRouterContext<TRouter>>;
-    };
+export type BunHttpHandlerOptions<TRouter extends AnyRouter> = Omit<
+    FetchHandlerRequestOptions<TRouter>,
+    "req"
+> & {
+    endpoint?: string;
+    createContext?: (
+        opts: CreateBunContextOptions,
+    ) => inferRouterContext<TRouter> | Promise<inferRouterContext<TRouter>>;
+};
 
 export function createBunHttpHandler<TRouter extends AnyRouter>(
     opts: BunHttpHandlerOptions<TRouter> & { emitWsUpgrades?: boolean },
@@ -34,6 +36,7 @@ export function createBunHttpHandler<TRouter extends AnyRouter>(
         }
 
         return fetchRequestHandler({
+            createContext: () => ({}) as never,
             ...opts,
             req: request,
             endpoint: opts.endpoint ?? "",
