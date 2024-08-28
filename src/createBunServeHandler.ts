@@ -20,10 +20,10 @@ export function createBunServeHandler<TRouter extends AnyRouter>(
     return {
         ...serveOptions,
         async fetch(req: Request, server: Server) {
-            const trpcReponse = trpcHandler(req, server);
+            const trpcResponse = trpcHandler(req, server);
 
-            if (trpcReponse) {
-                return trpcReponse;
+            if (trpcResponse) {
+                return trpcResponse;
             }
 
             return serveOptions?.fetch?.call(server, req, server);
