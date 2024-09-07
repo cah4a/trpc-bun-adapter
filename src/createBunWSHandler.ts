@@ -40,6 +40,7 @@ export type BunWSClientCtx = {
     req: Request;
     handleRequest: (msg: TRPCClientOutgoingMessage) => Promise<void>;
     unsubscribe(): void;
+    openPromise: Promise<void>;
 };
 
 export function createBunWSHandler<TRouter extends AnyRouter>(
@@ -73,8 +74,8 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                 req,
                 res: client,
             });
-            let ctx: inferRouterContext<TRouter> | undefined = undefined;
-            await (async () => {
+           client.data.openPromise = (async () => {
+                let ctx: inferRouterContext<TRouter> | undefined = undefined;
                 try {
                     ctx = await ctxPromise;
                 } catch (cause) {
@@ -102,167 +103,167 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                     // close in next tick
                     setImmediate(() => client.close());
                 }
-            })();
-
-            const stopSubscription = (
-                subscription: Unsubscribable,
-                {
-                    id,
-                    jsonrpc,
-                }: JSONRPC2.BaseEnvelope & { id: JSONRPC2.RequestId },
-            ) => {
-                subscription.unsubscribe();
-
-                respond(client, {
-                    id,
-                    jsonrpc,
-                    result: {
-                        type: "stopped",
-                    },
-                });
-            };
-
-            client.data.handleRequest = async (
-                msg: TRPCClientOutgoingMessage,
-            ) => {
-                const { id, jsonrpc } = msg;
-                /* istanbul ignore next -- @preserve */
-                if (id === null) {
-                    throw new TRPCError({
-                        code: "BAD_REQUEST",
-                        message: "`id` is required",
+    
+                const stopSubscription = (
+                    subscription: Unsubscribable,
+                    {
+                        id,
+                        jsonrpc,
+                    }: JSONRPC2.BaseEnvelope & { id: JSONRPC2.RequestId },
+                ) => {
+                    subscription.unsubscribe();
+    
+                    respond(client, {
+                        id,
+                        jsonrpc,
+                        result: {
+                            type: "stopped",
+                        },
                     });
-                }
-                if (msg.method === "subscription.stop") {
-                    const sub = clientSubscriptions.get(id);
-                    if (sub) {
-                        stopSubscription(sub, { id, jsonrpc });
-                    }
-                    clientSubscriptions.delete(id);
-                    return;
-                }
-                const { path, input } = msg.params;
-                const type = msg.method;
-                try {
-                    await ctxPromise; // asserts context has been set
-
-                    const result = await callProcedure({
-                        procedures: router._def.procedures,
-                        path,
-                        input,
-                        getRawInput: () => Promise.resolve(input),
-                        ctx,
-                        type,
-                    });
-
-                    if (type === "subscription") {
-                        if (!isObservable(result)) {
-                            throw new TRPCError({
-                                message: `Subscription ${path} did not return an observable`,
-                                code: "INTERNAL_SERVER_ERROR",
-                            });
-                        }
-                    } else {
-                        // send the value as data if the method is not a subscription
-                        respond(client, {
-                            id,
-                            jsonrpc,
-                            result: {
-                                type: "data",
-                                data: result,
-                            },
+                };
+    
+                client.data.handleRequest = async (
+                    msg: TRPCClientOutgoingMessage,
+                ) => {
+                    const { id, jsonrpc } = msg;
+                    /* istanbul ignore next -- @preserve */
+                    if (id === null) {
+                        throw new TRPCError({
+                            code: "BAD_REQUEST",
+                            message: "`id` is required",
                         });
+                    }
+                    if (msg.method === "subscription.stop") {
+                        const sub = clientSubscriptions.get(id);
+                        if (sub) {
+                            stopSubscription(sub, { id, jsonrpc });
+                        }
+                        clientSubscriptions.delete(id);
                         return;
                     }
-
-                    const observable = result;
-                    const sub = observable.subscribe({
-                        next(data) {
+                    const { path, input } = msg.params;
+                    const type = msg.method;
+                    try {
+                        await ctxPromise; // asserts context has been set
+    
+                        const result = await callProcedure({
+                            procedures: router._def.procedures,
+                            path,
+                            input,
+                            getRawInput: () => Promise.resolve(input),
+                            ctx,
+                            type,
+                        });
+    
+                        if (type === "subscription") {
+                            if (!isObservable(result)) {
+                                throw new TRPCError({
+                                    message: `Subscription ${path} did not return an observable`,
+                                    code: "INTERNAL_SERVER_ERROR",
+                                });
+                            }
+                        } else {
+                            // send the value as data if the method is not a subscription
                             respond(client, {
                                 id,
                                 jsonrpc,
                                 result: {
                                     type: "data",
-                                    data,
+                                    data: result,
                                 },
                             });
-                        },
-                        error(err) {
-                            const error = getTRPCErrorFromUnknown(err);
-                            opts.onError?.({
-                                error,
-                                path,
-                                type,
-                                ctx,
-                                req,
-                                input,
-                            });
-                            respond(client, {
-                                id,
-                                jsonrpc,
-                                error: getErrorShape({
-                                    config: router._def._config,
+                            return;
+                        }
+    
+                        const observable = result;
+                        const sub = observable.subscribe({
+                            next(data) {
+                                respond(client, {
+                                    id,
+                                    jsonrpc,
+                                    result: {
+                                        type: "data",
+                                        data,
+                                    },
+                                });
+                            },
+                            error(err) {
+                                const error = getTRPCErrorFromUnknown(err);
+                                opts.onError?.({
                                     error,
-                                    type,
                                     path,
-                                    input,
+                                    type,
                                     ctx,
-                                }),
+                                    req,
+                                    input,
+                                });
+                                respond(client, {
+                                    id,
+                                    jsonrpc,
+                                    error: getErrorShape({
+                                        config: router._def._config,
+                                        error,
+                                        type,
+                                        path,
+                                        input,
+                                        ctx,
+                                    }),
+                                });
+                            },
+                            complete() {
+                                respond(client, {
+                                    id,
+                                    jsonrpc,
+                                    result: {
+                                        type: "stopped",
+                                    },
+                                });
+                            },
+                        });
+    
+                        if (client.readyState !== WebSocket.OPEN) {
+                            // if the client got disconnected whilst initializing the subscription
+                            // no need to send stopped message if the client is disconnected
+                            sub.unsubscribe();
+                            return;
+                        }
+    
+                        if (clientSubscriptions.has(id)) {
+                            // duplicate request ids for client
+                            stopSubscription(sub, { id, jsonrpc });
+                            throw new TRPCError({
+                                message: `Duplicate id ${id}`,
+                                code: "BAD_REQUEST",
                             });
-                        },
-                        complete() {
-                            respond(client, {
-                                id,
-                                jsonrpc,
-                                result: {
-                                    type: "stopped",
-                                },
-                            });
-                        },
-                    });
-
-                    if (client.readyState !== WebSocket.OPEN) {
-                        // if the client got disconnected whilst initializing the subscription
-                        // no need to send stopped message if the client is disconnected
-                        sub.unsubscribe();
-                        return;
-                    }
-
-                    if (clientSubscriptions.has(id)) {
-                        // duplicate request ids for client
-                        stopSubscription(sub, { id, jsonrpc });
-                        throw new TRPCError({
-                            message: `Duplicate id ${id}`,
-                            code: "BAD_REQUEST",
+                        }
+                        clientSubscriptions.set(id, sub);
+    
+                        respond(client, {
+                            id,
+                            jsonrpc,
+                            result: {
+                                type: "started",
+                            },
+                        });
+                    } catch (cause) {
+                        // procedure threw an error
+                        const error = getTRPCErrorFromUnknown(cause);
+                        opts.onError?.({ error, path, type, ctx, req, input });
+                        respond(client, {
+                            id,
+                            jsonrpc,
+                            error: getErrorShape({
+                                config: router._def._config,
+                                error,
+                                type,
+                                path,
+                                input,
+                                ctx,
+                            }),
                         });
                     }
-                    clientSubscriptions.set(id, sub);
-
-                    respond(client, {
-                        id,
-                        jsonrpc,
-                        result: {
-                            type: "started",
-                        },
-                    });
-                } catch (cause) {
-                    // procedure threw an error
-                    const error = getTRPCErrorFromUnknown(cause);
-                    opts.onError?.({ error, path, type, ctx, req, input });
-                    respond(client, {
-                        id,
-                        jsonrpc,
-                        error: getErrorShape({
-                            config: router._def._config,
-                            error,
-                            type,
-                            path,
-                            input,
-                            ctx,
-                        }),
-                    });
-                }
-            };
+                };
+            })();
 
             client.data.unsubscribe = () => {
                 for (const sub of clientSubscriptions.values()) {
@@ -278,6 +279,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
 
         async message(client, message) {
             try {
+                await client.data.openPromise;
                 const msgJSON: unknown = JSON.parse(message.toString());
                 const msgs: unknown[] = Array.isArray(msgJSON)
                     ? msgJSON
