@@ -7,7 +7,8 @@ import { Server } from "bun";
 describe("e2e", () => {
     let server: Server;
 
-    const createContext = ({ req }: { req: Request }) => {
+    const createContext = async ({ req }: { req: Request }) => {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         return {
             name: req.headers.get("x-name") ?? "World",
         };
@@ -233,7 +234,7 @@ describe("e2e", () => {
             messages.push(data);
         };
 
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 1100));
 
         ws.send(
             JSON.stringify({
