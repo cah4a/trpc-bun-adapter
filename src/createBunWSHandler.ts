@@ -264,6 +264,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                     }
                 };
             })();
+            await client.data.openPromise;
 
             client.data.unsubscribe = () => {
                 for (const sub of clientSubscriptions.values()) {
