@@ -153,6 +153,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                         getRawInput: () => Promise.resolve(input),
                         ctx,
                         type,
+                        signal: undefined
                     });
 
                     if (type === "subscription") {
