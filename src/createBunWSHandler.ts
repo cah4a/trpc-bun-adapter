@@ -19,6 +19,7 @@ import {
 import {
     isObservable,
     Observable,
+    observableToAsyncIterable,
     Unsubscribable,
 } from "@trpc/server/observable";
 import type { BaseHandlerOptions } from "@trpc/server/src/@trpc/server/http";
@@ -385,75 +386,4 @@ function run<TValue>(fn: () => TValue): TValue {
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return !!value && !Array.isArray(value) && typeof value === "object";
-}
-
-// note: These functions differ from @trpc/server (as of now)
-// see https://github.com/trpc/trpc/pull/6088 for reason
-
-type Result<T, E = unknown> =
-    | { isOk: true; value: T }
-    | { isOk: false; error: E };
-
-function observableToReadableStream<TValue>(
-    observable: Observable<TValue, unknown>,
-): ReadableStream<Result<TValue>> {
-    let unsub: Unsubscribable | null = null;
-    return new ReadableStream<Result<TValue>>({
-        start(controller) {
-            unsub = observable.subscribe({
-                next(data) {
-                    controller.enqueue({ isOk: true, value: data });
-                },
-                error(error) {
-                    controller.enqueue({ isOk: false, error });
-                    controller.close();
-                },
-                complete() {
-                    controller.close();
-                },
-            });
-        },
-        cancel() {
-            unsub?.unsubscribe();
-        },
-    });
-}
-
-export function observableToAsyncIterable<TValue>(
-    observable: Observable<TValue, unknown>,
-): AsyncIterable<TValue> {
-    const stream = observableToReadableStream(observable);
-
-    const reader = stream.getReader();
-    const iterator: AsyncIterator<TValue> = {
-        async next() {
-            const value = await reader.read();
-            if (value.done) {
-                return {
-                    value: undefined,
-                    done: true,
-                };
-            }
-            const { value: result } = value;
-            if (!result.isOk) {
-                throw result.error;
-            }
-            return {
-                value: result.value,
-                done: false,
-            };
-        },
-        async return() {
-            await reader.cancel();
-            return {
-                value: undefined,
-                done: true,
-            };
-        },
-    };
-    return {
-        [Symbol.asyncIterator]() {
-            return iterator;
-        },
-    };
 }
