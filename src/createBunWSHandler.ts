@@ -74,7 +74,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                 req,
                 res: client,
             });
-           client.data.openPromise = (async () => {
+            client.data.openPromise = (async () => {
                 let ctx: inferRouterContext<TRouter> | undefined = undefined;
                 try {
                     ctx = await ctxPromise;
@@ -103,7 +103,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                     // close in next tick
                     setImmediate(() => client.close());
                 }
-    
+
                 const stopSubscription = (
                     subscription: Unsubscribable,
                     {
@@ -112,7 +112,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                     }: JSONRPC2.BaseEnvelope & { id: JSONRPC2.RequestId },
                 ) => {
                     subscription.unsubscribe();
-    
+
                     respond(client, {
                         id,
                         jsonrpc,
@@ -121,7 +121,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                         },
                     });
                 };
-    
+
                 client.data.handleRequest = async (
                     msg: TRPCClientOutgoingMessage,
                 ) => {
@@ -145,7 +145,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                     const type = msg.method;
                     try {
                         await ctxPromise; // asserts context has been set
-    
+
                         const result = await callProcedure({
                             procedures: router._def.procedures,
                             path,
@@ -154,7 +154,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                             ctx,
                             type,
                         });
-    
+
                         if (type === "subscription") {
                             if (!isObservable(result)) {
                                 throw new TRPCError({
@@ -174,7 +174,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                             });
                             return;
                         }
-    
+
                         const observable = result;
                         const sub = observable.subscribe({
                             next(data) {
@@ -220,14 +220,14 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                                 });
                             },
                         });
-    
+
                         if (client.readyState !== WebSocket.OPEN) {
                             // if the client got disconnected whilst initializing the subscription
                             // no need to send stopped message if the client is disconnected
                             sub.unsubscribe();
                             return;
                         }
-    
+
                         if (clientSubscriptions.has(id)) {
                             // duplicate request ids for client
                             stopSubscription(sub, { id, jsonrpc });
@@ -237,7 +237,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                             });
                         }
                         clientSubscriptions.set(id, sub);
-    
+
                         respond(client, {
                             id,
                             jsonrpc,
