@@ -4,6 +4,10 @@ import { initTRPC } from "@trpc/server";
 import { observable } from "@trpc/server/observable";
 import { Server } from "bun";
 
+function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 describe("e2e", () => {
     let server: Server;
 
@@ -33,6 +37,14 @@ describe("e2e", () => {
                 }, 10);
             }),
         ),
+
+        names: t.procedure.subscription(async function* () {
+            await wait(10);
+            yield "gollum";
+            yield "gandalf";
+            yield "frodo";
+            throw new Error("MyError");
+        }),
     });
 
     beforeAll(async () => {
@@ -284,6 +296,92 @@ describe("e2e", () => {
                         code: "INTERNAL_SERVER_ERROR",
                         httpStatus: 500,
                         path: "digits",
+                        stack: expect.any(String),
+                    },
+                },
+            },
+            {
+                id,
+                result: {
+                    type: "stopped",
+                },
+            },
+        ]);
+    });
+
+    test("websocket call subscription (generator function)", async () => {
+        const ws = new WebSocket("ws://localhost:13123/trpc");
+
+        const messages: unknown[] = [];
+        const id = Math.random();
+
+        ws.onopen = () => {
+            ws.send(
+                JSON.stringify({
+                    id,
+                    method: "subscription",
+                    params: {
+                        path: "names",
+                    },
+                }),
+            );
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            messages.push(data);
+        };
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        ws.send(
+            JSON.stringify({
+                id,
+                method: "subscription.stop",
+            }),
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        ws.close();
+
+        expect(messages).toEqual([
+            {
+                id,
+                result: {
+                    type: "started",
+                },
+            },
+            {
+                id,
+                result: {
+                    type: "data",
+                    data: "gollum",
+                },
+            },
+            {
+                id,
+                result: {
+                    type: "data",
+                    data: "gandalf",
+                },
+            },
+            {
+                id,
+                result: {
+                    type: "data",
+                    data: "frodo",
+                },
+            },
+            {
+                id,
+                error: {
+                    code: -32603,
+                    message: "MyError",
+                    data: {
+                        code: "INTERNAL_SERVER_ERROR",
+                        httpStatus: 500,
+                        path: "names",
                         stack: expect.any(String),
                     },
                 },
