@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
 
-import type { AppRouter } from "../server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
     createTRPCReact,
     createWSClient,
@@ -9,7 +9,7 @@ import {
     splitLink,
     wsLink,
 } from "@trpc/react-query";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { AppRouter } from "../server";
 
 const trpc = createTRPCReact<AppRouter>();
 
@@ -59,6 +59,12 @@ function SubscribeExample() {
     return <div>Subscribe: {number}</div>;
 }
 
-const root = ReactDOM.createRoot(document.getElementById("root")!);
+const el = document.getElementById("root");
+
+if (!el) {
+    throw new Error("No root element");
+}
+
+const root = ReactDOM.createRoot(el);
 
 root.render(<App />);

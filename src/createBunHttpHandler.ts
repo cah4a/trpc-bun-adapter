@@ -1,10 +1,10 @@
-import { Server } from "bun";
-import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type { AnyRouter, inferRouterContext } from "@trpc/server";
+import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import type {
-    FetchHandlerRequestOptions,
     FetchCreateContextFnOptions,
+    FetchHandlerRequestOptions,
 } from "@trpc/server/adapters/fetch";
+import type { Server } from "bun";
 
 export type CreateBunContextOptions = FetchCreateContextFnOptions;
 

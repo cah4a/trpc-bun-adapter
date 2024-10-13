@@ -1,8 +1,8 @@
-import { test, describe, beforeAll, afterAll, expect } from "bun:test";
-import { createBunServeHandler } from "./createBunServeHandler";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { initTRPC } from "@trpc/server";
 import { observable } from "@trpc/server/observable";
-import { Server } from "bun";
+import type { Server } from "bun";
+import { createBunServeHandler } from "./createBunServeHandler";
 
 function wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -12,7 +12,7 @@ describe("e2e", () => {
     let server: Server;
 
     const createContext = async ({ req }: { req: Request }) => {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 10));
         return {
             name: req.headers.get("x-name") ?? "World",
         };
@@ -241,12 +241,16 @@ describe("e2e", () => {
             );
         };
 
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            messages.push(data);
-        };
+        await new Promise<void>((resolve) => {
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                messages.push(data);
 
-        await new Promise((resolve) => setTimeout(resolve, 1100));
+                if (data?.result?.type === "stopped") {
+                    resolve();
+                }
+            };
+        });
 
         ws.send(
             JSON.stringify({
@@ -254,8 +258,6 @@ describe("e2e", () => {
                 method: "subscription.stop",
             }),
         );
-
-        await new Promise((resolve) => setTimeout(resolve, 100));
 
         ws.close();
 
@@ -327,12 +329,16 @@ describe("e2e", () => {
             );
         };
 
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            messages.push(data);
-        };
+        await new Promise<void>((resolve) => {
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                messages.push(data);
 
-        await new Promise((resolve) => setTimeout(resolve, 100));
+                if (data?.result?.type === "stopped") {
+                    resolve();
+                }
+            };
+        });
 
         ws.send(
             JSON.stringify({
@@ -340,8 +346,6 @@ describe("e2e", () => {
                 method: "subscription.stop",
             }),
         );
-
-        await new Promise((resolve) => setTimeout(resolve, 100));
 
         ws.close();
 

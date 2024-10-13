@@ -1,6 +1,6 @@
 import { initTRPC } from "@trpc/server";
-import { createBunServeHandler } from "trpc-bun-adapter";
 import { observable } from "@trpc/server/observable";
+import { createBunServeHandler } from "trpc-bun-adapter";
 
 const t = initTRPC.create();
 

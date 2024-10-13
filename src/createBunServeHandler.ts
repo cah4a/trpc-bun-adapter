@@ -1,10 +1,13 @@
+import type { AnyRouter } from "@trpc/server";
 import type { ServeOptions, Server } from "bun";
-import { BunWSAdapterOptions, createBunWSHandler } from "./createBunWSHandler";
 import {
-    BunHttpHandlerOptions,
+    type BunHttpHandlerOptions,
     createBunHttpHandler,
 } from "./createBunHttpHandler";
-import type { AnyRouter } from "@trpc/server";
+import {
+    type BunWSAdapterOptions,
+    createBunWSHandler,
+} from "./createBunWSHandler";
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>;
 

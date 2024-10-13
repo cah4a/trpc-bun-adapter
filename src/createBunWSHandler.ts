@@ -1,31 +1,34 @@
-import { ServerWebSocket, WebSocketHandler } from "bun";
 import {
-    parseTRPCMessage,
-    TRPCClientOutgoingMessage,
-    TRPCResponseMessage,
-    TRPCResultMessage,
-} from "@trpc/server/rpc";
-import {
-    AnyRouter,
+    type AnyRouter,
+    TRPCError,
     callProcedure,
     getErrorShape,
-    transformTRPCResponse,
     getTRPCErrorFromUnknown,
-    inferRouterContext,
-    TRPCError,
+    type inferRouterContext,
     isTrackedEnvelope,
+    transformTRPCResponse,
 } from "@trpc/server";
 import {
     isObservable,
     observableToAsyncIterable,
 } from "@trpc/server/observable";
-import type { BaseHandlerOptions } from "@trpc/server/src/@trpc/server/http";
+import {
+    type TRPCClientOutgoingMessage,
+    type TRPCResponseMessage,
+    type TRPCResultMessage,
+    parseTRPCMessage,
+} from "@trpc/server/rpc";
 import type { CreateContextCallback } from "@trpc/server/src/@trpc/server";
-import type { MaybePromise } from "@trpc/server/src/unstable-core-do-not-import";
+import type { BaseHandlerOptions } from "@trpc/server/src/@trpc/server/http";
 import type { NodeHTTPCreateContextFnOptions } from "@trpc/server/src/adapters/node-http";
+import type { MaybePromise } from "@trpc/server/src/unstable-core-do-not-import";
+import type { ServerWebSocket, WebSocketHandler } from "bun";
 
-export type CreateBunWSSContextFnOptions = Omit<
-    NodeHTTPCreateContextFnOptions<Request, ServerWebSocket<BunWSClientCtx>>,
+export type CreateBunWSSContextFnOptions<TRouter extends AnyRouter> = Omit<
+    NodeHTTPCreateContextFnOptions<
+        Request,
+        ServerWebSocket<BunWSClientCtx<TRouter>>
+    >,
     "info"
 >;
 
@@ -36,20 +39,20 @@ export type BunWSAdapterOptions<TRouter extends AnyRouter> = BaseHandlerOptions<
     CreateContextCallback<
         inferRouterContext<TRouter>,
         (
-            opts: CreateBunWSSContextFnOptions,
+            opts: CreateBunWSSContextFnOptions<TRouter>,
         ) => MaybePromise<inferRouterContext<TRouter>>
     >;
 
-export type BunWSClientCtx = {
+export type BunWSClientCtx<TRouter extends AnyRouter> = {
     req: Request;
-    handleRequest: (msg: TRPCClientOutgoingMessage) => Promise<void>;
-    unsubscribe(): void;
+    ctx?: Promise<inferRouterContext<TRouter>>;
+    abortControllers: Map<string | number, AbortController>;
 };
 
 export function createBunWSHandler<TRouter extends AnyRouter>(
     opts: BunWSAdapterOptions<TRouter>,
-): WebSocketHandler<BunWSClientCtx> {
-    const {router, createContext} = opts;
+): WebSocketHandler<BunWSClientCtx<TRouter>> {
+    const { router, createContext } = opts;
 
     const respond = (
         client: ServerWebSocket<unknown>,
@@ -65,220 +68,166 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
         );
     };
 
-    return {
-        async open(client) {
-            const {req} = client.data;
-            const clientAbortControllers = new Map<
-                string | number,
-                AbortController
-            >();
+    async function openContext(
+        client: ServerWebSocket<BunWSClientCtx<inferRouterContext<TRouter>>>,
+    ) {
+        const ctxPromise = createContext?.({
+            req: client.data.req,
+            res: client,
+        });
 
-            const ctxPromise = createContext?.({
-                req,
-                res: client,
+        try {
+            return await ctxPromise;
+        } catch (cause) {
+            const error = getTRPCErrorFromUnknown(cause);
+            opts.onError?.({
+                error,
+                path: undefined,
+                type: "unknown",
+                ctx: undefined,
+                req: client.data.req,
+                input: undefined,
             });
-            let ctx: inferRouterContext<TRouter> | undefined = undefined;
-            await (async () => {
-                try {
-                    ctx = await ctxPromise;
-                } catch (cause) {
-                    const error = getTRPCErrorFromUnknown(cause);
-                    opts.onError?.({
-                        error,
-                        path: undefined,
-                        type: "unknown",
-                        ctx,
-                        req,
-                        input: undefined,
-                    });
-                    respond(client, {
-                        id: null,
-                        error: getErrorShape({
-                            config: router._def._config,
-                            error,
-                            type: "unknown",
-                            path: undefined,
-                            input: undefined,
-                            ctx,
-                        }),
-                    });
+            respond(client, {
+                id: null,
+                error: getErrorShape({
+                    config: router._def._config,
+                    error,
+                    type: "unknown",
+                    path: undefined,
+                    input: undefined,
+                    ctx: undefined,
+                }),
+            });
+        }
+    }
 
-                    // close in next tick
-                    setImmediate(() => client.close());
+    async function handleRequest(
+        client: ServerWebSocket<BunWSClientCtx<inferRouterContext<TRouter>>>,
+        msg: TRPCClientOutgoingMessage,
+    ) {
+        if (!msg.id) {
+            throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "`id` is required",
+            });
+        }
+
+        if (msg.method === "subscription.stop") {
+            client.data.abortControllers.get(msg.id)?.abort();
+            client.data.abortControllers.delete(msg.id);
+            return;
+        }
+
+        const { id, method, jsonrpc } = msg;
+        const type = method;
+        const { path, lastEventId } = msg.params;
+        const req = client.data.req;
+        const clientAbortControllers = client.data.abortControllers;
+        let { input } = msg.params;
+        const ctx = await client.data.ctx;
+
+        try {
+            if (lastEventId !== undefined) {
+                if (isObject(input)) {
+                    input = {
+                        ...input,
+                        lastEventId: lastEventId,
+                    };
+                } else {
+                    input ??= {
+                        lastEventId: lastEventId,
+                    };
                 }
-            })();
+            }
 
-            client.data.handleRequest = async (
-                msg: TRPCClientOutgoingMessage,
-            ) => {
-                const {id, jsonrpc} = msg;
-                if (id === null) {
+            if (clientAbortControllers.has(id)) {
+                // duplicate request ids for client
+                throw new TRPCError({
+                    message: `Duplicate id ${id}`,
+                    code: "BAD_REQUEST",
+                });
+            }
+
+            const abortController = new AbortController();
+            const result = await callProcedure({
+                procedures: router._def.procedures,
+                path,
+                getRawInput: () => Promise.resolve(input),
+                ctx,
+                type,
+                signal: abortController.signal,
+            });
+
+            const isIterableResult =
+                isAsyncIterable(result) || isObservable(result);
+
+            if (type !== "subscription") {
+                if (isIterableResult) {
                     throw new TRPCError({
-                        code: "BAD_REQUEST",
-                        message: "`id` is required",
+                        code: "UNSUPPORTED_MEDIA_TYPE",
+                        message: `Cannot return an async iterable or observable from a ${type} procedure with WebSockets`,
                     });
                 }
-                if (msg.method === "subscription.stop") {
-                    clientAbortControllers.get(id)?.abort();
-                    return;
-                }
-                const {path, lastEventId} = msg.params;
-                let {input} = msg.params;
-                const type = msg.method;
-                try {
-                    if (lastEventId !== undefined) {
-                        if (isObject(input)) {
-                            input = {
-                                ...input,
-                                lastEventId: lastEventId,
-                            };
-                        } else {
-                            input ??= {
-                                lastEventId: lastEventId,
-                            };
-                        }
-                    }
-                    await ctxPromise; // asserts context has been set
+                // send the value as data if the method is not a subscription
+                respond(client, {
+                    id,
+                    jsonrpc,
+                    result: {
+                        type: "data",
+                        data: result,
+                    },
+                });
+                return;
+            }
 
-                    const abortController = new AbortController();
-                    const result = await callProcedure({
-                        procedures: router._def.procedures,
-                        path,
-                        getRawInput: () => Promise.resolve(input),
-                        ctx,
-                        type,
-                        signal: abortController.signal,
-                    });
+            if (!isIterableResult) {
+                throw new TRPCError({
+                    message: `Subscription ${path} did not return an observable or a AsyncGenerator`,
+                    code: "INTERNAL_SERVER_ERROR",
+                });
+            }
 
-                    const isIterableResult =
-                        isAsyncIterable(result) || isObservable(result);
+            if (client.readyState !== WebSocket.OPEN) {
+                // if the client got disconnected whilst initializing the subscription
+                // no need to send stopped message if the client is disconnected
+                return;
+            }
 
-                    if (type !== "subscription") {
-                        if (isIterableResult) {
-                            throw new TRPCError({
-                                code: "UNSUPPORTED_MEDIA_TYPE",
-                                message: `Cannot return an async iterable or observable from a ${type} procedure with WebSockets`,
-                            });
-                        }
-                        // send the value as data if the method is not a subscription
-                        respond(client, {
-                            id,
-                            jsonrpc,
-                            result: {
-                                type: "data",
-                                data: result,
-                            },
-                        });
-                        return;
-                    }
+            const iterable = isObservable(result)
+                ? observableToAsyncIterable(result)
+                : result;
 
-                    if (!isIterableResult) {
-                        throw new TRPCError({
-                            message: `Subscription ${path} did not return an observable or a AsyncGenerator`,
-                            code: "INTERNAL_SERVER_ERROR",
-                        });
-                    }
+            const iterator: AsyncIterator<unknown> =
+                iterable[Symbol.asyncIterator]();
 
-                    if (client.readyState !== WebSocket.OPEN) {
-                        // if the client got disconnected whilst initializing the subscription
-                        // no need to send stopped message if the client is disconnected
+            const abortPromise = new Promise<"abort">((resolve) => {
+                abortController.signal.onabort = () => resolve("abort");
+            });
 
-                        return;
-                    }
+            clientAbortControllers.set(id, abortController);
+            run(async () => {
+                while (true) {
+                    const next = await Promise.race([
+                        iterator.next().catch(getTRPCErrorFromUnknown),
+                        abortPromise,
+                    ]);
 
-                    if (clientAbortControllers.has(id)) {
-                        // duplicate request ids for client
-
-                        throw new TRPCError({
-                            message: `Duplicate id ${id}`,
-                            code: "BAD_REQUEST",
-                        });
-                    }
-
-                    const iterable = isObservable(result)
-                        ? observableToAsyncIterable(result)
-                        : result;
-
-                    const iterator: AsyncIterator<unknown> =
-                        iterable[Symbol.asyncIterator]();
-
-                    const abortPromise = new Promise<"abort">((resolve) => {
-                        abortController.signal.onabort = () => resolve("abort");
-                    });
-
-                    run(async () => {
-                        while (true) {
-                            const next = await Promise.race([
-                                iterator.next().catch(getTRPCErrorFromUnknown),
-                                abortPromise,
-                            ]);
-
-                            if (next === "abort") {
-                                await iterator.return?.();
-                                break;
-                            }
-                            if (next instanceof Error) {
-                                const error = getTRPCErrorFromUnknown(next);
-                                opts.onError?.({
-                                    error,
-                                    path,
-                                    type,
-                                    ctx,
-                                    req,
-                                    input,
-                                });
-                                respond(client, {
-                                    id,
-                                    jsonrpc,
-                                    error: getErrorShape({
-                                        config: router._def._config,
-                                        error,
-                                        type,
-                                        path,
-                                        input,
-                                        ctx,
-                                    }),
-                                });
-                                break;
-                            }
-                            if (next.done) {
-                                break;
-                            }
-
-                            const result: TRPCResultMessage<unknown>["result"] =
-                                {
-                                    type: "data",
-                                    data: next.value,
-                                };
-
-                            if (isTrackedEnvelope(next.value)) {
-                                const [id, data] = next.value;
-                                result.id = id;
-                                result.data = {
-                                    id,
-                                    data,
-                                };
-                            }
-
-                            respond(client, {
-                                id,
-                                jsonrpc,
-                                result,
-                            });
-                        }
-
+                    if (next === "abort") {
                         await iterator.return?.();
-                        respond(client, {
-                            id,
-                            jsonrpc,
-                            result: {
-                                type: "stopped",
-                            },
+                        break;
+                    }
+
+                    if (next instanceof Error) {
+                        const error = getTRPCErrorFromUnknown(next);
+                        opts.onError?.({
+                            error,
+                            path,
+                            type,
+                            ctx,
+                            req,
+                            input,
                         });
-                        clientAbortControllers.delete(id);
-                    }).catch((cause) => {
-                        const error = getTRPCErrorFromUnknown(cause);
-                        opts.onError?.({error, path, type, ctx, req, input});
                         respond(client, {
                             id,
                             jsonrpc,
@@ -291,21 +240,46 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                                 ctx,
                             }),
                         });
-                        abortController.abort();
-                    });
-                    clientAbortControllers.set(id, abortController);
+                        break;
+                    }
+
+                    if (next.done) {
+                        break;
+                    }
+
+                    const result: TRPCResultMessage<unknown>["result"] = {
+                        type: "data",
+                        data: next.value,
+                    };
+
+                    if (isTrackedEnvelope(next.value)) {
+                        const [id, data] = next.value;
+                        result.id = id;
+                        result.data = {
+                            id,
+                            data,
+                        };
+                    }
 
                     respond(client, {
                         id,
                         jsonrpc,
-                        result: {
-                            type: "started",
-                        },
+                        result,
                     });
-                } catch (cause) {
-                    // procedure threw an error
+                }
+
+                await iterator.return?.();
+                respond(client, {
+                    id,
+                    jsonrpc,
+                    result: {
+                        type: "stopped",
+                    },
+                });
+            })
+                .catch((cause) => {
                     const error = getTRPCErrorFromUnknown(cause);
-                    opts.onError?.({error, path, type, ctx, req, input});
+                    opts.onError?.({ error, path, type, ctx, req, input });
                     respond(client, {
                         id,
                         jsonrpc,
@@ -318,19 +292,52 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                             ctx,
                         }),
                     });
-                }
-            };
+                    abortController.abort();
+                })
+                .finally(() => {
+                    clientAbortControllers.delete(id);
+                });
 
-            client.data.unsubscribe = () => {
-                for (const ctrl of clientAbortControllers.values()) {
-                    ctrl.abort();
-                }
-                clientAbortControllers.clear();
-            };
+            respond(client, {
+                id,
+                jsonrpc,
+                result: {
+                    type: "started",
+                },
+            });
+        } catch (cause) {
+            // procedure threw an error
+            const error = getTRPCErrorFromUnknown(cause);
+            opts.onError?.({ error, path, type, ctx, req, input });
+            respond(client, {
+                id,
+                jsonrpc,
+                error: getErrorShape({
+                    config: router._def._config,
+                    error,
+                    type,
+                    path,
+                    input,
+                    ctx,
+                }),
+            });
+        }
+    }
+
+    return {
+        open(client) {
+            client.data.abortControllers = new Map();
+            if (createContext) {
+                client.data.ctx = openContext(client);
+            }
         },
 
         async close(client) {
-            client.data.unsubscribe?.();
+            await Promise.all(
+                Array.from(client.data.abortControllers.values(), (ctrl) =>
+                    ctrl.abort(),
+                ),
+            );
         },
 
         async message(client, message) {
@@ -340,11 +347,15 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                     ? msgJSON
                     : [msgJSON];
 
-                const promises = msgs
-                    .map((raw) =>
-                        parseTRPCMessage(raw, router._def._config.transformer),
-                    )
-                    .map(client.data.handleRequest);
+                const promises = [];
+
+                for (const raw of msgs) {
+                    const msg = parseTRPCMessage(
+                        raw,
+                        router._def._config.transformer,
+                    );
+                    promises.push(handleRequest(client, msg));
+                }
 
                 await Promise.all(promises);
             } catch (cause) {
@@ -370,7 +381,6 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
 }
 
 // util functions of @trpc/server that are not exported, unfortunately
-
 function isAsyncIterable<TValue>(
     value: unknown,
 ): value is AsyncIterable<TValue> {
