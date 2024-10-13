@@ -1,6 +1,5 @@
 import { ServerWebSocket, WebSocketHandler } from "bun";
 import {
-    JSONRPC2,
     parseTRPCMessage,
     TRPCClientOutgoingMessage,
     TRPCResponseMessage,
@@ -18,9 +17,7 @@ import {
 } from "@trpc/server";
 import {
     isObservable,
-    Observable,
     observableToAsyncIterable,
-    Unsubscribable,
 } from "@trpc/server/observable";
 import type { BaseHandlerOptions } from "@trpc/server/src/@trpc/server/http";
 import type { CreateContextCallback } from "@trpc/server/src/@trpc/server";
@@ -52,7 +49,7 @@ export type BunWSClientCtx = {
 export function createBunWSHandler<TRouter extends AnyRouter>(
     opts: BunWSAdapterOptions<TRouter>,
 ): WebSocketHandler<BunWSClientCtx> {
-    const { router, createContext } = opts;
+    const {router, createContext} = opts;
 
     const respond = (
         client: ServerWebSocket<unknown>,
@@ -70,7 +67,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
 
     return {
         async open(client) {
-            const { req } = client.data;
+            const {req} = client.data;
             const clientAbortControllers = new Map<
                 string | number,
                 AbortController
@@ -114,7 +111,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
             client.data.handleRequest = async (
                 msg: TRPCClientOutgoingMessage,
             ) => {
-                const { id, jsonrpc } = msg;
+                const {id, jsonrpc} = msg;
                 if (id === null) {
                     throw new TRPCError({
                         code: "BAD_REQUEST",
@@ -125,8 +122,8 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                     clientAbortControllers.get(id)?.abort();
                     return;
                 }
-                const { path, lastEventId } = msg.params;
-                let { input } = msg.params;
+                const {path, lastEventId} = msg.params;
+                let {input} = msg.params;
                 const type = msg.method;
                 try {
                     if (lastEventId !== undefined) {
@@ -281,7 +278,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                         clientAbortControllers.delete(id);
                     }).catch((cause) => {
                         const error = getTRPCErrorFromUnknown(cause);
-                        opts.onError?.({ error, path, type, ctx, req, input });
+                        opts.onError?.({error, path, type, ctx, req, input});
                         respond(client, {
                             id,
                             jsonrpc,
@@ -308,7 +305,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                 } catch (cause) {
                     // procedure threw an error
                     const error = getTRPCErrorFromUnknown(cause);
-                    opts.onError?.({ error, path, type, ctx, req, input });
+                    opts.onError?.({error, path, type, ctx, req, input});
                     respond(client, {
                         id,
                         jsonrpc,
