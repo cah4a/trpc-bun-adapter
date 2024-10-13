@@ -1,6 +1,6 @@
 {
     "name": "trpc-bun-adapter",
-    "version": "1.1.2",
+    "version": "1.2.0",
     "description": "TRPC adapter for bun js runtime",
     "main": "dist/index.js",
     "module": "dist/index.mjs",
@@ -15,7 +15,8 @@
     ],
     "scripts": {
         "test": "bun test",
-        "fmt": "bunx @biomejs/biome format --write .",
+        "lint": "bunx @biomejs/biome check",
+        "lint:fix": "bunx @biomejs/biome check --write .",
         "build": "npx tsup src/index.ts --format cjs,esm --dts --clean --sourcemap"
     },
     "keywords": ["bun", "trpc", "adapter", "websocket"],
