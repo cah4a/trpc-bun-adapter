@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { initTRPC } from "@trpc/server";
 import { observable } from "@trpc/server/observable";
 import type { Server } from "bun";
-import { createBunServeHandler } from "./createBunServeHandler";
+import { type CreateBunContextOptions, createBunServeHandler } from "./index";
 
 function wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -11,14 +11,12 @@ function wait(ms: number): Promise<void> {
 describe("e2e", () => {
     let server: Server;
 
-    const createContext = async ({ req }: { req: Request }) => {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        return {
-            name: req.headers.get("x-name") ?? "World",
-        };
-    };
-
-    const t = initTRPC.context<typeof createContext>().create();
+    const t = initTRPC
+        .context<{
+            name: string;
+            params: CreateBunContextOptions["info"]["connectionParams"];
+        }>()
+        .create();
 
     const router = t.router({
         hello: t.procedure.query(({ ctx }) => `Hello ${ctx.name}!`),
@@ -45,6 +43,8 @@ describe("e2e", () => {
             yield "frodo";
             throw new Error("MyError");
         }),
+
+        params: t.procedure.query(({ ctx }) => ctx.params),
     });
 
     beforeAll(async () => {
@@ -53,7 +53,12 @@ describe("e2e", () => {
                 {
                     router,
                     endpoint: "/trpc",
-                    createContext,
+                    createContext({ req, info }) {
+                        return {
+                            name: req.headers.get("x-name") ?? "World",
+                            params: info.connectionParams,
+                        };
+                    },
                 },
                 {
                     port: 13123,
@@ -404,5 +409,57 @@ describe("e2e", () => {
         expect(response.ok).toBe(true);
         const result = await response.text();
         expect(result).toEqual("Falling back to fetch");
+    });
+
+    test("websocket connection params", async () => {
+        const ws = new WebSocket(
+            "ws://localhost:13123/trpc?connectionParams=1",
+        );
+
+        ws.onopen = () => {
+            ws.send(
+                JSON.stringify({
+                    id: 1,
+                    method: "connectionParams",
+                    data: {
+                        foo: "bar",
+                    },
+                }),
+            );
+
+            ws.send(
+                JSON.stringify({
+                    id: 2,
+                    method: "query",
+                    params: {
+                        path: "params",
+                    },
+                }),
+            );
+        };
+
+        const messages: unknown[] = [];
+
+        await new Promise<void>((resolve) => {
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                messages.push(data);
+                resolve();
+            };
+        });
+
+        ws.close();
+
+        expect(messages).toEqual([
+            {
+                id: 2,
+                result: {
+                    type: "data",
+                    data: {
+                        foo: "bar",
+                    },
+                },
+            },
+        ]);
     });
 });

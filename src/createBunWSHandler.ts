@@ -8,6 +8,8 @@ import {
     isTrackedEnvelope,
     transformTRPCResponse,
 } from "@trpc/server";
+import { parseConnectionParamsFromUnknown } from "@trpc/server/http";
+import type { TRPCRequestInfo } from "@trpc/server/http";
 import {
     isObservable,
     observableToAsyncIterable,
@@ -19,18 +21,20 @@ import {
     parseTRPCMessage,
 } from "@trpc/server/rpc";
 import type { CreateContextCallback } from "@trpc/server/src/@trpc/server";
-import type { BaseHandlerOptions } from "@trpc/server/src/@trpc/server/http";
+import {
+    type BaseHandlerOptions,
+    toURL,
+} from "@trpc/server/src/@trpc/server/http";
+import type { TRPCConnectionParamsMessage } from "@trpc/server/src/@trpc/server/rpc";
 import type { NodeHTTPCreateContextFnOptions } from "@trpc/server/src/adapters/node-http";
 import type { MaybePromise } from "@trpc/server/src/unstable-core-do-not-import";
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 
-export type CreateBunWSSContextFnOptions<TRouter extends AnyRouter> = Omit<
+export type CreateBunWSSContextFnOptions<TRouter extends AnyRouter> =
     NodeHTTPCreateContextFnOptions<
         Request,
         ServerWebSocket<BunWSClientCtx<TRouter>>
-    >,
-    "info"
->;
+    >;
 
 export type BunWSAdapterOptions<TRouter extends AnyRouter> = BaseHandlerOptions<
     TRouter,
@@ -45,6 +49,7 @@ export type BunWSAdapterOptions<TRouter extends AnyRouter> = BaseHandlerOptions<
 
 export type BunWSClientCtx<TRouter extends AnyRouter> = {
     req: Request;
+    abortController: AbortController;
     ctx?: Promise<inferRouterContext<TRouter>>;
     abortControllers: Map<string | number, AbortController>;
 };
@@ -68,12 +73,21 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
         );
     };
 
-    async function openContext(
+    async function createClientCtx(
         client: ServerWebSocket<BunWSClientCtx<inferRouterContext<TRouter>>>,
+        connectionParams: TRPCRequestInfo["connectionParams"],
     ) {
         const ctxPromise = createContext?.({
             req: client.data.req,
             res: client,
+            info: {
+                connectionParams,
+                calls: [],
+                isBatchCall: false,
+                accept: null,
+                type: "unknown",
+                signal: client.data.abortController.signal,
+            },
         });
 
         try {
@@ -326,13 +340,21 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
 
     return {
         open(client) {
+            client.data.abortController = new AbortController();
             client.data.abortControllers = new Map();
-            if (createContext) {
-                client.data.ctx = openContext(client);
+
+            const connectionParams =
+                toURL(client.data.req.url ?? "").searchParams.get(
+                    "connectionParams",
+                ) === "1";
+
+            if (!connectionParams) {
+                client.data.ctx = createClientCtx(client, null);
             }
         },
 
         async close(client) {
+            client.data.abortController.abort();
             await Promise.all(
                 Array.from(client.data.abortControllers.values(), (ctrl) =>
                     ctrl.abort(),
@@ -341,11 +363,31 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
         },
 
         async message(client, message) {
+            const msgStr = message.toString();
+
+            if (msgStr === "PONG") {
+                return;
+            }
+
+            if (msgStr === "PING") {
+                client.send("PONG");
+                return;
+            }
+
             try {
-                const msgJSON: unknown = JSON.parse(message.toString());
+                const msgJSON: unknown = JSON.parse(msgStr);
                 const msgs: unknown[] = Array.isArray(msgJSON)
                     ? msgJSON
                     : [msgJSON];
+
+                if (!client.data.ctx) {
+                    const msg = msgs.shift() as TRPCConnectionParamsMessage;
+
+                    client.data.ctx = createClientCtx(
+                        client,
+                        parseConnectionParamsFromUnknown(msg.data),
+                    );
+                }
 
                 const promises = [];
 
