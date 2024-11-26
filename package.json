@@ -1,6 +1,6 @@
 {
     "name": "trpc-bun-adapter",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "description": "TRPC adapter for bun js runtime",
     "main": "dist/index.js",
     "module": "dist/index.mjs",
