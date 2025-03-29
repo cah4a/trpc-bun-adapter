@@ -70,7 +70,7 @@ describe("e2e", () => {
         );
     });
 
-    afterAll(() => server.stop());
+    afterAll(() => server.stop(true));
 
     test("http call procedure", async () => {
         const response = await fetch("http://localhost:13123/trpc/hello");

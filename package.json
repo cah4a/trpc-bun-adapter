@@ -1,6 +1,6 @@
 {
     "name": "trpc-bun-adapter",
-    "version": "1.2.2",
+    "version": "1.3.0",
     "description": "TRPC adapter for bun js runtime",
     "main": "dist/index.js",
     "module": "dist/index.mjs",
@@ -15,9 +15,9 @@
     ],
     "scripts": {
         "test": "bun test",
-        "lint": "bunx @biomejs/biome check",
-        "lint:fix": "bunx @biomejs/biome check --write .",
-        "build": "npx tsup src/index.ts --format cjs,esm --dts --clean --sourcemap"
+        "lint": "biome check",
+        "lint:fix": "biome check --write .",
+        "bundle": "npx tsup src/index.ts --format cjs,esm --dts --clean --sourcemap"
     },
     "keywords": ["bun", "trpc", "adapter", "websocket"],
     "repository": {
@@ -27,12 +27,13 @@
     "author": "Sancha <cah4o3@gmail.com>",
     "license": "MIT",
     "devDependencies": {
-        "@trpc/server": "next",
+        "@trpc/server": "11.0.0",
         "bun-types": "^1.1.17",
         "tsup": "^8.0.1",
-        "typescript": "^5.5.4"
+        "typescript": "^5.5.4",
+        "@biomejs/biome": "^1.9.4"
     },
     "peerDependencies": {
-        "@trpc/server": "^11.0.0-rc.566"
+        "@trpc/server": "^11.0.0"
     }
 }

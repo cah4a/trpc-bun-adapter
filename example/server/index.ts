@@ -1,5 +1,5 @@
 import { initTRPC } from "@trpc/server";
-import { observable } from "@trpc/server/observable";
+import { sleep } from "bun";
 import { createBunServeHandler } from "trpc-bun-adapter";
 
 const t = initTRPC.create();
@@ -9,15 +9,16 @@ export const router = t.router({
         return "pong";
     }),
 
-    subscribe: t.procedure.subscription(() => {
-        return observable<number>((emit) => {
-            emit.next(Math.random());
-            emit.complete();
-        });
+    subscribe: t.procedure.subscription(async function* () {
+        await sleep(1000);
+        yield Math.random();
     }),
 });
 
 export type AppRouter = typeof router;
+
+console.log("Building client...");
+Bun.spawnSync(["bun", "bundle"]);
 
 Bun.serve(
     createBunServeHandler(
@@ -28,6 +29,7 @@ Bun.serve(
         {
             fetch(req) {
                 const url = new URL(req.url);
+
                 if (url.pathname === "/app.js") {
                     return new Response(Bun.file("./dist/app.js"));
                 }
@@ -41,3 +43,5 @@ Bun.serve(
         },
     ),
 );
+
+console.log("Listening on http://localhost:3000");
