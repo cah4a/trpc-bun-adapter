@@ -1,6 +1,7 @@
-name: Node.js Package
+name: Publish NPM Package
 
 on:
+    workflow_dispatch:
     release:
         types: [ published ]
 
@@ -27,10 +28,12 @@ jobs:
         steps:
             -   uses: actions/checkout@v4
             -   uses: actions/setup-node@v4
+                with:
+                    registry-url: https://registry.npmjs.org
             -   uses: actions/download-artifact@v4
                 with:
                     name: dist
                     path: ./dist
-            -   run: npm publish
+            -   run: npm publish --access public
                 env:
                     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
