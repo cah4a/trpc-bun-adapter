@@ -1,13 +1,13 @@
 import {
-    type AnyRouter,
     TRPCError,
-    callProcedure,
+    callTRPCProcedure,
     getErrorShape,
     getTRPCErrorFromUnknown,
     type inferRouterContext,
     isTrackedEnvelope,
     transformTRPCResponse,
 } from "@trpc/server";
+import type { AnyRouter } from "@trpc/server";
 import { parseConnectionParamsFromUnknown } from "@trpc/server/http";
 import type { TRPCRequestInfo } from "@trpc/server/http";
 import {
@@ -21,10 +21,7 @@ import {
     parseTRPCMessage,
 } from "@trpc/server/rpc";
 import type { CreateContextCallback } from "@trpc/server/src/@trpc/server";
-import {
-    type BaseHandlerOptions,
-    toURL,
-} from "@trpc/server/src/@trpc/server/http";
+import type { BaseHandlerOptions } from "@trpc/server/src/@trpc/server/http";
 import type { TRPCConnectionParamsMessage } from "@trpc/server/src/@trpc/server/rpc";
 import type { NodeHTTPCreateContextFnOptions } from "@trpc/server/src/adapters/node-http";
 import type { MaybePromise } from "@trpc/server/src/unstable-core-do-not-import";
@@ -37,6 +34,7 @@ export type CreateBunWSSContextFnOptions<TRouter extends AnyRouter> =
     >;
 
 export type BunWSAdapterOptions<TRouter extends AnyRouter> = BaseHandlerOptions<
+    // @ts-expect-error: I don't know why this AnyRouter differs the one exported from @trpc/server
     TRouter,
     Request
 > &
@@ -50,8 +48,12 @@ export type BunWSAdapterOptions<TRouter extends AnyRouter> = BaseHandlerOptions<
 export type BunWSClientCtx<TRouter extends AnyRouter> = {
     req: Request;
     abortController: AbortController;
-    ctx?: Promise<inferRouterContext<TRouter>>;
     abortControllers: Map<string | number, AbortController>;
+    ctx:
+        | Promise<inferRouterContext<TRouter>>
+        | ((
+              params: TRPCRequestInfo["connectionParams"],
+          ) => Promise<inferRouterContext<TRouter>>);
 };
 
 export function createBunWSHandler<TRouter extends AnyRouter>(
@@ -75,12 +77,14 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
 
     async function createClientCtx(
         client: ServerWebSocket<BunWSClientCtx<inferRouterContext<TRouter>>>,
+        url: URL,
         connectionParams: TRPCRequestInfo["connectionParams"],
     ) {
         const ctxPromise = createContext?.({
             req: client.data.req,
             res: client,
             info: {
+                url,
                 connectionParams,
                 calls: [],
                 isBatchCall: false,
@@ -164,8 +168,8 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
             }
 
             const abortController = new AbortController();
-            const result = await callProcedure({
-                procedures: router._def.procedures,
+            const result = await callTRPCProcedure({
+                router,
                 path,
                 getRawInput: () => Promise.resolve(input),
                 ctx,
@@ -209,7 +213,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
             }
 
             const iterable = isObservable(result)
-                ? observableToAsyncIterable(result)
+                ? observableToAsyncIterable(result, abortController.signal)
                 : result;
 
             const iterator: AsyncIterator<unknown> =
@@ -343,13 +347,14 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
             client.data.abortController = new AbortController();
             client.data.abortControllers = new Map();
 
+            const url = createURL(client);
+            client.data.ctx = createClientCtx.bind(null, client, url);
+
             const connectionParams =
-                toURL(client.data.req.url ?? "").searchParams.get(
-                    "connectionParams",
-                ) === "1";
+                url.searchParams.get("connectionParams") === "1";
 
             if (!connectionParams) {
-                client.data.ctx = createClientCtx(client, null);
+                client.data.ctx = client.data.ctx(null);
             }
         },
 
@@ -380,11 +385,9 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
                     ? msgJSON
                     : [msgJSON];
 
-                if (!client.data.ctx) {
+                if (client.data.ctx instanceof Function) {
                     const msg = msgs.shift() as TRPCConnectionParamsMessage;
-
-                    client.data.ctx = createClientCtx(
-                        client,
+                    client.data.ctx = client.data.ctx(
                         parseConnectionParamsFromUnknown(msg.data),
                     );
                 }
@@ -435,4 +438,24 @@ function run<TValue>(fn: () => TValue): TValue {
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return !!value && !Array.isArray(value) && typeof value === "object";
+}
+
+function createURL(client: ServerWebSocket<BunWSClientCtx<AnyRouter>>): URL {
+    try {
+        const req = client.data.req;
+
+        const protocol =
+            client && "encrypted" in client && client.encrypted
+                ? "https:"
+                : "http:";
+
+        const host = req.headers.get("host") ?? "localhost";
+        return new URL(req.url, `${protocol}//${host}`);
+    } catch (cause) {
+        throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Invalid URL",
+            cause,
+        });
+    }
 }
