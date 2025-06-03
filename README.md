@@ -173,7 +173,10 @@ const websocket = createBunWSHandler({
 
 Bun.serve({
     fetch(request, server) {
-        if (server.upgrade(request, {data: {req: request}})) {
+        const data = {
+            req: request // This is required for the adapter to work properly.
+        };
+        if (server.upgrade(request, { data })) {
             return;
         }
 
@@ -182,6 +185,8 @@ Bun.serve({
     websocket,
 });
 ```
+
+> Note that it is required to store the request object on the socket data context in order for this adapter to work.
 
 ### CreateBunContextOptions
 
