@@ -8,6 +8,7 @@ import {
     transformTRPCResponse,
 } from "@trpc/server";
 import type { AnyRouter } from "@trpc/server";
+import type { NodeHTTPCreateContextFnOptions } from "@trpc/server/adapters/node-http";
 import { parseConnectionParamsFromUnknown } from "@trpc/server/http";
 import type { TRPCRequestInfo } from "@trpc/server/http";
 import {
@@ -16,15 +17,16 @@ import {
 } from "@trpc/server/observable";
 import {
     type TRPCClientOutgoingMessage,
+    type TRPCConnectionParamsMessage,
     type TRPCResponseMessage,
     type TRPCResultMessage,
     parseTRPCMessage,
 } from "@trpc/server/rpc";
-import type { CreateContextCallback } from "@trpc/server/src/@trpc/server";
-import type { BaseHandlerOptions } from "@trpc/server/src/@trpc/server/http";
-import type { TRPCConnectionParamsMessage } from "@trpc/server/src/@trpc/server/rpc";
-import type { NodeHTTPCreateContextFnOptions } from "@trpc/server/src/adapters/node-http";
-import type { MaybePromise } from "@trpc/server/src/unstable-core-do-not-import";
+import type {
+    BaseHandlerOptions,
+    CreateContextCallback,
+    MaybePromise,
+} from "@trpc/server/unstable-core-do-not-import";
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 
 export type CreateBunWSSContextFnOptions<TRouter extends AnyRouter> =
@@ -34,7 +36,6 @@ export type CreateBunWSSContextFnOptions<TRouter extends AnyRouter> =
     >;
 
 export type BunWSAdapterOptions<TRouter extends AnyRouter> = BaseHandlerOptions<
-    // @ts-expect-error: I don't know why this AnyRouter differs the one exported from @trpc/server
     TRouter,
     Request
 > &
