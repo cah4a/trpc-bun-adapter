@@ -7,11 +7,27 @@ on:
 jobs:
     lint:
         runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - bun: 1.4.2
+                      trpc: 11.19.0
+                      bun-types: 1.4.2
+                    - bun: 1.3.5
+                      trpc: 11.8.1
+                      bun-types: 1.3.5
+                    - bun: 1.4.2
+                      trpc: 11.0.0
+                      bun-types: 1.4.2
         steps:
             -   uses: actions/checkout@v4
             -   uses: oven-sh/setup-bun@v2
                 with:
-                    bun-version: 1.2.7
-            -   run: bun install
+                    bun-version: ${{ matrix.bun }}
+            -   run: bun install --frozen-lockfile
+            -   run: bun add --dev --exact @trpc/server@${{ matrix.trpc }} bun-types@${{ matrix.bun-types }}
             -   run: bun lint
             -   run: bun test
+            -   run: bun bundle
+            -   run: bun typecheck

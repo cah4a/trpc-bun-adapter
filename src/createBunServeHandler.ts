@@ -6,15 +6,19 @@ import {
 } from "./createBunHttpHandler";
 import {
     type BunWSAdapterOptions,
+    type BunWSClientData,
     createBunWSHandler,
 } from "./createBunWSHandler";
 
-type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>;
+// Preserve Bun's mutually exclusive TCP/unix and fetch/routes options.
+type Optional<T, K extends keyof T> = T extends unknown
+    ? Pick<Partial<T>, K> & Omit<T, K>
+    : never;
 
 export function createBunServeHandler<TRouter extends AnyRouter>(
     opts: BunHttpHandlerOptions<TRouter> & BunWSAdapterOptions<TRouter>,
-    serveOptions?: Optional<ServeOptions, "fetch">,
-) {
+    serveOptions?: Optional<ServeOptions<BunWSClientData>, "fetch">,
+): ServeOptions<BunWSClientData> {
     const trpcHandler = createBunHttpHandler({
         ...opts,
         emitWsUpgrades: true,
@@ -22,7 +26,7 @@ export function createBunServeHandler<TRouter extends AnyRouter>(
 
     return {
         ...serveOptions,
-        async fetch(req: Request, server: Server) {
+        async fetch(req: Request, server: Server<BunWSClientData>) {
             const trpcResponse = trpcHandler(req, server);
 
             if (trpcResponse) {

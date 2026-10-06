@@ -9,7 +9,7 @@ function wait(ms: number): Promise<void> {
 }
 
 describe("e2e", () => {
-    let server: Server;
+    let server: Server<unknown>;
 
     const t = initTRPC
         .context<{
@@ -45,6 +45,10 @@ describe("e2e", () => {
         }),
 
         params: t.procedure.query(({ ctx }) => ctx.params),
+
+        batchIndex: t.procedure.query((opts) =>
+            "batchIndex" in opts ? opts.batchIndex : null,
+        ),
     });
 
     beforeAll(async () => {
@@ -71,6 +75,59 @@ describe("e2e", () => {
     });
 
     afterAll(() => server.stop(true));
+
+    test("http with default endpoint and context", async () => {
+        const plain = initTRPC.create();
+        const defaultServer = Bun.serve(
+            createBunServeHandler(
+                {
+                    router: plain.router({
+                        ping: plain.procedure.query(() => "pong"),
+                    }),
+                },
+                { port: 0 },
+            ),
+        );
+        try {
+            const response = await fetch(new URL("/ping", defaultServer.url));
+            expect(await response.json()).toEqual({ result: { data: "pong" } });
+        } finally {
+            defaultServer.stop(true);
+        }
+    });
+
+    test("websocket batch indices and single-call index", async () => {
+        const ws = new WebSocket("ws://localhost:13123/trpc");
+        try {
+            const messages = await new Promise<
+                { id: number; result: { data: unknown } }[]
+            >((resolve, reject) => {
+                const received: { id: number; result: { data: unknown } }[] =
+                    [];
+                ws.onerror = reject;
+                ws.onopen = () => {
+                    const call = (id: number) => ({
+                        id,
+                        method: "query",
+                        params: { path: "batchIndex" },
+                    });
+                    ws.send(JSON.stringify([call(1), call(2), call(3)]));
+                    ws.send(JSON.stringify(call(4)));
+                };
+                ws.onmessage = (event) => {
+                    received.push(JSON.parse(event.data));
+                    if (received.length === 4) resolve(received);
+                };
+            });
+            messages.sort((a, b) => a.id - b.id);
+            expect(messages.map((message) => message.id)).toEqual([1, 2, 3, 4]);
+            expect(messages.map((message) => message.result.data)).toEqual([
+                0, 1, 2, 0,
+            ]);
+        } finally {
+            ws.close();
+        }
+    });
 
     test("http call procedure", async () => {
         const response = await fetch("http://localhost:13123/trpc/hello");
