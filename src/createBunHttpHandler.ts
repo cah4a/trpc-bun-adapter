@@ -10,7 +10,7 @@ export type CreateBunContextOptions = FetchCreateContextFnOptions;
 
 export type BunHttpHandlerOptions<TRouter extends AnyRouter> = Omit<
     FetchHandlerRequestOptions<TRouter>,
-    "req"
+    "req" | "endpoint"
 > & {
     endpoint?: string;
     createContext?: (
@@ -21,7 +21,7 @@ export type BunHttpHandlerOptions<TRouter extends AnyRouter> = Omit<
 export function createBunHttpHandler<TRouter extends AnyRouter>(
     opts: BunHttpHandlerOptions<TRouter> & { emitWsUpgrades?: boolean },
 ) {
-    return (request: Request, server: Server) => {
+    return (request: Request, server: Server<unknown>) => {
         const url = new URL(request.url);
 
         if (opts.endpoint && !url.pathname.startsWith(opts.endpoint)) {

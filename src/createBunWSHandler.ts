@@ -7,10 +7,10 @@ import {
     isTrackedEnvelope,
     transformTRPCResponse,
 } from "@trpc/server";
-import type { AnyRouter } from "@trpc/server";
+import type { AnyRouter, CreateContextCallback } from "@trpc/server";
 import type { NodeHTTPCreateContextFnOptions } from "@trpc/server/adapters/node-http";
 import { parseConnectionParamsFromUnknown } from "@trpc/server/http";
-import type { TRPCRequestInfo } from "@trpc/server/http";
+import type { BaseHandlerOptions, TRPCRequestInfo } from "@trpc/server/http";
 import {
     isObservable,
     observableToAsyncIterable,
@@ -22,11 +22,6 @@ import {
     type TRPCResultMessage,
     parseTRPCMessage,
 } from "@trpc/server/rpc";
-import type {
-    BaseHandlerOptions,
-    CreateContextCallback,
-    MaybePromise,
-} from "@trpc/server/unstable-core-do-not-import";
 import type { ServerWebSocket, WebSocketHandler } from "bun";
 
 export type CreateBunWSSContextFnOptions<TRouter extends AnyRouter> =
@@ -43,11 +38,15 @@ export type BunWSAdapterOptions<TRouter extends AnyRouter> = BaseHandlerOptions<
         inferRouterContext<TRouter>,
         (
             opts: CreateBunWSSContextFnOptions<TRouter>,
-        ) => MaybePromise<inferRouterContext<TRouter>>
+        ) => inferRouterContext<TRouter> | Promise<inferRouterContext<TRouter>>
     >;
 
-export type BunWSClientCtx<TRouter extends AnyRouter> = {
+/** Data required at upgrade time; the remaining state is initialized in open. */
+export type BunWSClientData = {
     req: Request;
+};
+
+export type BunWSClientCtx<TRouter extends AnyRouter> = BunWSClientData & {
     abortController: AbortController;
     abortControllers: Map<string | number, AbortController>;
     ctx:
@@ -59,7 +58,7 @@ export type BunWSClientCtx<TRouter extends AnyRouter> = {
 
 export function createBunWSHandler<TRouter extends AnyRouter>(
     opts: BunWSAdapterOptions<TRouter>,
-): WebSocketHandler<BunWSClientCtx<TRouter>> {
+): WebSocketHandler<BunWSClientData> {
     const { router, createContext } = opts;
 
     const respond = (
@@ -77,7 +76,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
     };
 
     async function createClientCtx(
-        client: ServerWebSocket<BunWSClientCtx<inferRouterContext<TRouter>>>,
+        client: ServerWebSocket<BunWSClientCtx<TRouter>>,
         url: URL,
         connectionParams: TRPCRequestInfo["connectionParams"],
     ) {
@@ -122,8 +121,9 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
     }
 
     async function handleRequest(
-        client: ServerWebSocket<BunWSClientCtx<inferRouterContext<TRouter>>>,
+        client: ServerWebSocket<BunWSClientCtx<TRouter>>,
         msg: TRPCClientOutgoingMessage,
+        batchIndex: number,
     ) {
         if (!msg.id) {
             throw new TRPCError({
@@ -169,14 +169,17 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
             }
 
             const abortController = new AbortController();
-            const result = await callTRPCProcedure({
+            // A variable permits the extra field with older tRPC 11.x types.
+            const callOptions = {
                 router,
                 path,
                 getRawInput: () => Promise.resolve(input),
                 ctx,
                 type,
                 signal: abortController.signal,
-            });
+                batchIndex,
+            };
+            const result = await callTRPCProcedure(callOptions);
 
             const isIterableResult =
                 isAsyncIterable(result) || isObservable(result);
@@ -343,7 +346,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
         }
     }
 
-    return {
+    const handler: WebSocketHandler<BunWSClientCtx<TRouter>> = {
         open(client) {
             client.data.abortController = new AbortController();
             client.data.abortControllers = new Map();
@@ -395,12 +398,12 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
 
                 const promises = [];
 
-                for (const raw of msgs) {
+                for (const [batchIndex, raw] of msgs.entries()) {
                     const msg = parseTRPCMessage(
                         raw,
                         router._def._config.transformer,
                     );
-                    promises.push(handleRequest(client, msg));
+                    promises.push(handleRequest(client, msg, batchIndex));
                 }
 
                 await Promise.all(promises);
@@ -424,6 +427,7 @@ export function createBunWSHandler<TRouter extends AnyRouter>(
             }
         },
     };
+    return handler;
 }
 
 // util functions of @trpc/server that are not exported, unfortunately
